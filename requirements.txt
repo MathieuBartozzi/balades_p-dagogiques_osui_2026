@@ -1,5 +1,5 @@
 streamlit
+authlib
+httpx
 pandas
 plotly
-Authlib
-streamlit[auth]
