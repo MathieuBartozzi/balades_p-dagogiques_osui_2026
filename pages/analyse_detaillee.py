@@ -14,6 +14,11 @@ from utils.dashboard_helpers import (
 st.set_page_config(page_title="Dashboard MLF", layout="wide")
 st.title("Analyse détaillée")
 
+if "df" not in st.session_state:
+    st.warning("Les données ne sont pas encore chargées. Retourne à la page d'accueil.")
+    st.page_link("app.py", label="Retour à l'accueil")
+    st.stop()
+
 df = st.session_state["df"]
 
 with st.sidebar:
