@@ -323,3 +323,145 @@ def summary_table(df):
         group[col] = (group[col] * 100).round(1)
 
     return group
+
+
+
+def prepare_cahiers_elementaire_sixieme(df):
+    subset = df[
+        (df["niveau_agrege"] == "Élémentaire")
+        | (
+            df["niveau"]
+            .astype(str)
+            .str.contains(r"6e|6ème|6eme|sixième|sixieme", case=False, na=False)
+        )
+    ].copy()
+
+    if subset.empty:
+        return subset
+
+    subset["groupe_comparaison"] = "Élémentaire"
+
+    subset.loc[
+        subset["niveau"]
+        .astype(str)
+        .str.contains(r"6e|6ème|6eme|sixième|sixieme", case=False, na=False),
+        "groupe_comparaison",
+    ] = "Sixième"
+
+    ordre_groupes = ["Élémentaire", "Sixième"]
+
+    subset["groupe_comparaison"] = pd.Categorical(
+        subset["groupe_comparaison"],
+        categories=ordre_groupes,
+        ordered=True,
+    )
+
+    return subset
+
+
+def cahiers_summary_table(df):
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "Groupe",
+                "Observations",
+                "Cahiers suivis (%)",
+            ]
+        )
+
+    group = (
+        df.groupby("groupe_comparaison", observed=False, sort=False)
+        .agg(
+            observations=("groupe_comparaison", "size"),
+            cahiers_suivis=("cahiers_suivis", "mean"),
+        )
+        .reset_index()
+    )
+
+    group["cahiers_suivis"] = (group["cahiers_suivis"] * 100).round(1)
+
+    group.columns = [
+        "Groupe",
+        "Observations",
+        "Cahiers suivis (%)",
+    ]
+
+    return group
+
+
+def cahiers_comparison_chart(df, col, title):
+    temp = df.copy()
+
+    temp["reponse"] = (
+        temp[col]
+        .fillna("Non renseigné")
+        .astype(str)
+        .str.strip()
+        .replace(
+            {
+                "": "Non renseigné",
+                "nan": "Non renseigné",
+                "None": "Non renseigné",
+            }
+        )
+    )
+
+    data = (
+        temp.groupby(
+            ["groupe_comparaison", "reponse"],
+            observed=False,
+            sort=False,
+        )
+        .size()
+        .reset_index(name="Nombre")
+    )
+
+    data["Pourcentage"] = (
+        data["Nombre"]
+        / data.groupby(
+            "groupe_comparaison",
+            observed=False,
+            sort=False,
+        )["Nombre"].transform("sum")
+        * 100
+    ).round(1)
+
+    fig = px.bar(
+        data,
+        x="Pourcentage",
+        y="reponse",
+        color="groupe_comparaison",
+        barmode="group",
+        text="Pourcentage",
+        orientation="h",
+        color_discrete_sequence=CHART_COLORS,
+        category_orders={
+            "groupe_comparaison": ["Élémentaire", "Sixième"],
+        },
+    )
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="% des observations du groupe",
+        yaxis_title="",
+        legend_title="Groupe",
+        margin=dict(l=10, r=40, t=50, b=40),
+        height=420,
+    )
+
+    fig.update_xaxes(
+        range=[0, 100],
+        tickformat=".0f",
+    )
+
+    fig.update_traces(
+        texttemplate="%{text:.1f}%",
+        textposition="outside",
+        cliponaxis=False,
+    )
+
+    fig.update_yaxes(
+        automargin=True,
+    )
+
+    return fig

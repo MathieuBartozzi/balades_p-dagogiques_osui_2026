@@ -1,14 +1,16 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-
-
 from utils.dashboard_helpers import (
     filter_df,
     bar_distribution,
     cross_mobilisation_by_category,
-    score_distribution,
+    prepare_cahiers_elementaire_sixieme,
+    cahiers_summary_table,
+    cahiers_comparison_chart,
 )
+
+
 st.set_page_config(page_title="Dashboard MLF", layout="wide")
 st.title("Analyse détaillée")
 
@@ -235,146 +237,76 @@ with tab_cahiers:
 
     st.markdown("### Comparaison élémentaire / sixième")
 
-    subset = filtered[
-        (filtered["niveau_agrege"] == "Élémentaire")
-        | (
-            filtered["niveau"]
-            .astype(str)
-            .str.contains(r"6e|6ème|6eme|sixième|sixieme", case=False, na=False)
-        )
-    ].copy()
+    subset = prepare_cahiers_elementaire_sixieme(filtered)
 
     if subset.empty:
         st.info("Aucune donnée disponible pour la comparaison élémentaire / sixième.")
     else:
-        subset["groupe_comparaison"] = "Élémentaire"
-
-        subset.loc[
-            subset["niveau"]
-            .astype(str)
-            .str.contains(r"6e|6ème|6eme|sixième|sixieme", case=False, na=False),
-            "groupe_comparaison",
-        ] = "Sixième"
-
-        ordre_groupes = ["Élémentaire", "Sixième"]
-
-        subset["groupe_comparaison"] = pd.Categorical(
-            subset["groupe_comparaison"],
-            categories=ordre_groupes,
-            ordered=True,
-        )
-
         st.caption(
             "Comparaison centrée sur les indicateurs de cahiers : présence, correction, qualité et usage."
         )
 
-        synthese = (
-            subset.groupby("groupe_comparaison", observed=False)
-            .agg(
-                observations=("groupe_comparaison", "size"),
-                cahiers_suivis=("cahiers_suivis", "mean"),
-            )
-            .reset_index()
-        )
+        summary = cahiers_summary_table(subset)
 
-        synthese["Cahiers suivis (%)"] = (
-            synthese["cahiers_suivis"] * 100
-        ).round(1)
+        c1, c2, c3 = st.columns(3)
 
-        synthese = synthese.drop(columns=["cahiers_suivis"])
-        synthese.columns = ["Groupe", "Observations", "Cahiers suivis (%)"]
+        with c1:
+            with st.container(border=True):
+                st.metric(
+                    "Observations élémentaire",
+                    int(
+                        summary.loc[
+                            summary["Groupe"] == "Élémentaire",
+                            "Observations",
+                        ].sum()
+                    ),
+                )
 
-        k1, k2 = st.columns(2)
+        with c2:
+            with st.container(border=True):
+                st.metric(
+                    "Observations sixième",
+                    int(
+                        summary.loc[
+                            summary["Groupe"] == "Sixième",
+                            "Observations",
+                        ].sum()
+                    ),
+                )
 
-        with k1:
-            st.metric(
-                "Observations élémentaire",
-                int(
-                    synthese.loc[
-                        synthese["Groupe"] == "Élémentaire",
-                        "Observations",
-                    ].sum()
-                ),
-            )
-
-        with k2:
-            st.metric(
-                "Observations sixième",
-                int(
-                    synthese.loc[
-                        synthese["Groupe"] == "Sixième",
-                        "Observations",
-                    ].sum()
-                ),
-            )
+        with c3:
+            with st.container(border=True):
+                st.metric(
+                    "Cahiers suivis",
+                    f"{summary['Cahiers suivis (%)'].mean().round(1)}%",
+                )
 
         with st.container(border=True):
             st.markdown("#### Synthèse des cahiers suivis")
             st.dataframe(
-                synthese,
+                summary,
                 use_container_width=True,
                 hide_index=True,
             )
 
         indicateurs_cahiers = [
-            ("presence_cahiers", "Présence des cahiers"),
-            ("correction_cahiers", "Correction des cahiers"),
-            ("qualite_cahiers", "Qualité de tenue des cahiers"),
-            ("usage_cahier", "Usage répété du cahier"),
+            ("presence_cahiers", "Présence des cahiers — élémentaire vs sixième"),
+            ("correction_cahiers", "Correction des cahiers — élémentaire vs sixième"),
+            ("qualite_cahiers", "Qualité de tenue des cahiers — élémentaire vs sixième"),
+            ("usage_cahier", "Usage répété du cahier — élémentaire vs sixième"),
         ]
 
-        for col, titre in indicateurs_cahiers:
+        for col, title in indicateurs_cahiers:
             if col not in subset.columns:
                 st.warning(f"Colonne absente : {col}")
                 continue
 
-            data = (
-                subset.assign(reponse=subset[col].fillna("Non renseigné"))
-                .groupby(["groupe_comparaison", "reponse"], observed=False)
-                .size()
-                .reset_index(name="Nombre")
-            )
-
-            data["Pourcentage"] = (
-                data["Nombre"]
-                / data.groupby("groupe_comparaison", observed=False)["Nombre"].transform("sum")
-                * 100
-            ).round(1)
-
             with st.container(border=True):
-                fig = px.bar(
-                    data,
-                    x="Pourcentage",
-                    y="reponse",
-                    color="groupe_comparaison",
-                    barmode="group",
-                    text="Pourcentage",
-                    orientation="h",
-                    category_orders={
-                        "groupe_comparaison": ordre_groupes,
-                    },
-                    title=f"{titre} — élémentaire vs sixième",
+                fig = cahiers_comparison_chart(
+                    subset,
+                    col,
+                    title,
                 )
-
-                fig.update_layout(
-                    xaxis_title="% des observations du groupe",
-                    yaxis_title="",
-                    legend_title="Groupe",
-                    margin=dict(l=10, r=40, t=60, b=40),
-                    height=420,
-                )
-
-                fig.update_xaxes(
-                    range=[0, 100],
-                    tickformat=".0f",
-                )
-
-                fig.update_traces(
-                    texttemplate="%{text:.1f}%",
-                    textposition="outside",
-                    cliponaxis=False,
-                )
-
                 st.plotly_chart(fig, use_container_width=True)
 
         with st.expander("Voir le détail des observations élémentaire / sixième"):
@@ -391,12 +323,15 @@ with tab_cahiers:
                         "presence_cahiers",
                     ]
                 ].sort_values(
-                    ["groupe_comparaison", "etablissement", "niveau"]
+                    [
+                        "groupe_comparaison",
+                        "etablissement",
+                        "niveau",
+                    ]
                 ),
                 use_container_width=True,
                 hide_index=True,
             )
-
 
 with tab_donnees:
     st.subheader("Données filtrées")
